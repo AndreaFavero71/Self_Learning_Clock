@@ -1,0 +1,22 @@
+{
+    "EU": {
+        "start": ["MAR", "last", "sun", 2],
+        "end": ["OCT", "last", "sun", 3],
+        "offset": 3600
+    },
+    "US": {
+        "start": ["MAR", "2nd", "sun", 2],
+        "end": ["NOV", "1st", "sun", 2],
+        "offset": 3600
+    },
+    "AU": {
+        "start": ["OCT", "1st", "sun", 2],
+        "end": ["APR", "1st", "sun", 3],
+        "offset": 3600
+    },
+    "NONE": {
+        "start": null,
+        "end": null,
+        "offset": 0
+    }
+}
