@@ -15,7 +15,7 @@ The clock is battery-operated, and one charge should last for months; I'll provi
 
 <br><br>
 ## For more information
-More detailed informations at my [Instructables page](https://www.instructables.com/Self-Larning-Clock-SLC/)
+More detailed informations at my [Instructables page](https://www.instructables.com/Self-Learning-Clock-SLC/)
 
 
 <br><br>
