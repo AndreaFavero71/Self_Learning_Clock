@@ -9,7 +9,7 @@
 # sleep_ms(t_ms//2)
 # 
 # import asyncio
-# import slc_04
-# asyncio.run(slc_04.main(logo_time_ms=int(t_ms//2)))
+# import slc
+# asyncio.run(slc.main(logo_time_ms=int(t_ms//2)))
 
 
