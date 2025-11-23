@@ -36,7 +36,9 @@ class WDTManager:
         self.wdt = None
         self.last_feed_ticks_ms = ticks_ms()
         self.enabled = False
-        
+    
+    
+    
     def initialize(self):
         """Initialize WDT"""
         if not config.WDT_ENABLED:
@@ -45,11 +47,14 @@ class WDTManager:
         try: 
             self.wdt = WDT(timeout=config.wdt_timeout_ms)
             self.enabled = True
-            print(f"[WDT]      Initialized WDT with timeout: {config.wdt_timeout_ms}ms")
+            if config.DEBUG:
+                print(f"[WDT]      Initialized WDT with timeout: {config.wdt_timeout_ms}ms")
             
         except Exception as e:
-            print(f"[WDT_ERROR] Failed to initialize WDT: {e}")
+            if config.DEBUG:
+                print(f"[WDT_ERROR] Failed to initialize WDT: {e}")
             self.enabled = False
+    
     
     
     def feed(self, label=""):
@@ -64,7 +69,8 @@ class WDTManager:
             # warn if we're getting close to timeout
             if (time_since_last_feed > config.wdt_timeout_ms * config.wdt_warn_fraction and 
                 time_since_last_feed < config.wdt_timeout_ms):
-                print(f"[WDT] {label}, fed after {time_since_last_feed} ms (timeout={config.wdt_timeout_ms} ms)")
+                if config.DEBUG:
+                    print(f"[WDT] {label}, fed after {time_since_last_feed} ms (timeout={config.wdt_timeout_ms} ms)")
                 
                 # log to file if needed
                 try:
@@ -77,4 +83,6 @@ class WDTManager:
             self.last_feed_ticks_ms = current_ticks
             
         except Exception as e:
-            print(f"[WDT_FEED_ERROR] {e}")
+            if config.DEBUG:
+                print(f"[WDT_ERROR] {e}")
+

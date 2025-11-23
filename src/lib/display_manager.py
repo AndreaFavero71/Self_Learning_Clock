@@ -40,11 +40,12 @@ import framebuf, gc
 
 
 class Display():
-    def __init__(self, wdt_manager, lightsleep_active, battery, debug=False, logo_time_ms=0):
+    def __init__(self, wdt_manager, lightsleep_active, battery, degrees, debug=False, logo_time_ms=0):
 
         self.wdt_manager = wdt_manager
         self.lightsleep_active = lightsleep_active
         self.battery = battery
+        self.degrees = degrees
         self.debug = debug
         self.sleeping = False
         
@@ -97,7 +98,8 @@ class Display():
     
     def feed_wdt(self, label=""):
         """Use the WDT manager instead of global WDT"""
-        self.wdt_manager.feed(label)
+        if self.wdt_manager:
+            self.wdt_manager.feed(label)
     
     
     def reset(self):
@@ -150,11 +152,9 @@ class Display():
     
     def show_time(self, show_ms, lightsleep_req=True):
         if self.lightsleep_active and lightsleep_req:
-            if self.debug:
-                print(f"[DISPLAY]  Going to lightsleep for {show_ms} ms")
             lightsleep(show_ms)
         else:
-            if self.debug:
+            if self.debug and show_ms > 0:
                 print(f"[DISPLAY]  Going to sleep for {show_ms} ms")
             sleep_ms(show_ms)
 
@@ -234,6 +234,8 @@ class Display():
             self.epd.display()     # full edp refresh
         else:
             self.epd.fill(0xff)
+
+            
         
         if not self.battery:
             # uses the colon as hours to minutes separator
@@ -246,19 +248,19 @@ class Display():
             self.epd.fill_rect(292, 253, 2, 53, 0)        # add a black vertical line, to separate fields
 
             Writer.set_textpos(self.epd, self.wifi_y, self.wifi_x) 
-            self.wri_17.printstring(f"WIFI", invert=True) # WIFI lable
+            self.wri_17.printstring("WIFI", invert=True) # WIFI lable
 
             Writer.set_textpos(self.epd, self.ntp_y, self.ntp_x)
-            self.wri_17.printstring(f"NTP", invert=True)  # NPT lable
+            self.wri_17.printstring("NTP", invert=True)  # NPT lable
 
             Writer.set_textpos(self.epd, self.err_y, self.err_x)
-            self.wri_17.printstring(f"Error (ppm)", invert=True)
+            self.wri_17.printstring("Error (ppm)", invert=True)
 
             Writer.set_textpos(self.epd, self.temp_y, self.temp_x)  
-            self.wri_17.printstring(f"P Temp (°C)", invert=True) # Temp Lable
+            self.wri_17.printstring(f"P Temp (°{self.degrees})", invert=True) # Temp Lable
             
             Writer.set_textpos(self.epd, self.sync_lable_y, self.sync_lable_x)
-            self.wri_17.printstring(f"NEXT SYNC", invert=True) # Temp Lable
+            self.wri_17.printstring("NEXT SYNC", invert=True) # Temp Lable
             
         self.reset_variables()
         
@@ -289,12 +291,16 @@ class Display():
             update_epd = True
         
         if dd != self.last_dd:
+            # day of the week
+            self.epd.fill_rect(self.date_x, self.date_y, 180, 26, 1)     # add a white rect to erase old text
             Writer.set_textpos(self.epd, self.date_y, self.date_x)       # y, x order
             self.wri_28.printstring(day, invert=True)                    # day of the week 
+            
+            # full date
             Writer.set_textpos(self.epd, self.date_y, self.date_x+223)   # y, x order
             self.wri_28.printstring(d_string, invert=True)               # date in date_format
-            update_epd = True
             self.last_dd = dd
+            update_epd = True
         
         if H1 != self.last_H1:
             t_string = f"{H1+H2}"

@@ -3,7 +3,7 @@ Andrea Favero 20251112
 
 Self-learning clock project
 
-Utility function to erase the NVS namespace 'storage' where
+Function to erase the NVS namespace 'storage' where
 the correction factor gets stored.
 This is only necessary for testing, to replicate a 'clean start'
 

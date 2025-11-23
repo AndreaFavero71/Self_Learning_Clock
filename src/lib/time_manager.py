@@ -41,6 +41,7 @@ class TimeManager:
         self.UTC_TZ = getattr(config, "UTC_TZ", 0)
     
     
+    
     def get_UTC_TZ(self, utc_epoch_time):
         """
         Calculates current UTC offset including DST, based on region rules.
@@ -83,7 +84,6 @@ class TimeManager:
         offset_hr = (rule.get("offset", 3600) // 3600) if in_dst else 0
         
         return self.UTC_TZ + offset_hr
-
     
     
     
@@ -92,8 +92,11 @@ class TimeManager:
         try:
             with open("lib/config/dst_rules.json") as f:
                 return json.load(f)
+        
         except Exception as e:
-            print("[DST] Warning: could not load dst_rules.json:", e)
+            if config.DEBUG:
+                print("[DST]     Warning: could not load dst_rules.json:", e)
+            
             # fallback: only EU and NONE
             return {
                 "EU": {
@@ -107,7 +110,9 @@ class TimeManager:
                     "offset": 0
                 }
             }
-
+    
+    
+    
     def _get_rule_day(self, year, month_abbr, which, weekday_abbr):
         """Return the day number for nth/last weekday of a month."""
         months = {"JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,
@@ -117,7 +122,7 @@ class TimeManager:
         month = months[month_abbr.upper()]
         target_wday = weekdays[weekday_abbr.lower()]
 
-        # Simple month length
+        # month length
         if month in [1,3,5,7,8,10,12]:
             last_day = 31
         elif month == 2:
@@ -125,7 +130,7 @@ class TimeManager:
         else:
             last_day = 30
 
-        # Find target weekday
+        # find target weekday
         if which == "last":
             for d in range(last_day, last_day - 7, -1):
                 if gmtime(mktime((year, month, d, 12, 0, 0, 0, 0)))[6] == target_wday:
@@ -137,7 +142,7 @@ class TimeManager:
                     return d + nth * 7
 
         return 1  # fallback
-
+    
     
     
     def ms_to_hms(self, ms):
@@ -146,14 +151,14 @@ class TimeManager:
         m = (seconds % 3600) // 60
         s = seconds % 60
         return "{:02d}:{:02d}:{:02d}".format(h, m, s)
-
+    
     
     
     def get_time_digits(self, time_tuple):
         HH = "{:02d}".format(time_tuple[3])
         MM = "{:02d}".format(time_tuple[4])
         return HH[0], HH[1], MM[0], MM[1]
-
+    
     
     
     def get_date(self, time_tuple):
@@ -176,41 +181,59 @@ class TimeManager:
             d_string = f"{D}-{M}-{YYYY}"
         
         return dd, day, d_string
-
+    
     
     
     def predict_time(self, last_ntp_sync_ticks_ms, current_ticks_ms, last_ntp_epoch_ms, current_UTC_TZ):
-        # Calculate everything in milliseconds for precision
+        """
+        Predict the time without applying any corrections: Elapsed time is added to the latest time reference
+        The predicted time, including the time zone, is converted to epoch.
+        """        
+        
+        # calculate everything in milliseconds for precision
         t_since_last_sync_ms = ticks_diff(current_ticks_ms, last_ntp_sync_ticks_ms)
         
-        # Calculate predicted time in milliseconds
+        # calculate predicted time in milliseconds
         p_epoch_ms = last_ntp_epoch_ms + t_since_last_sync_ms
         p_epoch_s = p_epoch_ms // 1000  # Use integer division
         p_epoch_frac = (p_epoch_ms % 1000) / 1000.0  # Fractional part
         
-        # Convert to time tuple for human-readable format
+        # convert to time tuple for human-readable format
         p_t_tuple = gmtime(p_epoch_s + 3600 * current_UTC_TZ)
         p_millis = p_epoch_ms % 1000
                         
         return t_since_last_sync_ms, p_epoch_ms, p_epoch_s, p_epoch_frac, p_t_tuple, p_millis
-
     
     
     
     def calculate_corrected_time(self, current_ticks_ms, last_ntp_sync_ticks_ms,
                                 last_ntp_epoch_s, smoothed_drift_ppm):
         """
-        Calculates the current corrected time with sub-second precision.
-        Take into account the DST
+        Calculates the current time, by correcting it.
+        It takes into account the drift (passed as argument), the time zone
+        and the eventual DST
         """
         
+        # time (ms) since previous NTP sync (according to the mcu oscillator)
         time_since_sync_ms = ticks_diff(current_ticks_ms, last_ntp_sync_ticks_ms)
-        correction_ms = -(smoothed_drift_ppm * time_since_sync_ms) / 1000000   
+        
+        # calculate the correction (ms), based on the oscillator drift (ppm) and elapsed time (ms)
+        correction_ms = -(smoothed_drift_ppm * time_since_sync_ms) / 1000000
+        
+        # estimate elapsed time, calculated in ms and converted in rounded seconds
         total_elapsed_s = round((time_since_sync_ms + correction_ms) / 1000)
-        base_time_s = int(last_ntp_epoch_s + total_elapsed_s)
-        current_UTC_TZ = self.get_UTC_TZ(base_time_s) # DST CALCULATION
-        current_local_time_s = base_time_s + 3600 * current_UTC_TZ
-        time_tuple_utc = gmtime(current_local_time_s)
+        
+        # calculate the utc_epoch_s (utc time) in seconds
+        utc_epoch_s = int(last_ntp_epoch_s + total_elapsed_s)
+        
+        # retrieves the time shift due to time_zome and eventual DST
+        current_UTC_TZ = self.get_UTC_TZ(utc_epoch_s) # DST CALCULATION
+        
+        # local epoch time in seconds
+        local_epoch_s = utc_epoch_s + 3600 * current_UTC_TZ
+        
+        # local time in standard Micropython tuple format
+        time_tuple_utc = gmtime(local_epoch_s)
 
         if self.config.DEBUG:
             print("[DEBUG]    current_ticks_ms:", current_ticks_ms)
@@ -220,17 +243,17 @@ class TimeManager:
             print("[DEBUG]    time_since_sync_ms:", time_since_sync_ms)
             print("[DEBUG]    correction_ms:", round(correction_ms))
             print("[DEBUG]    total_elapsed_s:", total_elapsed_s)
-            print("[DEBUG]    base_time_s:", base_time_s)
+            print("[DEBUG]    utc_epoch_s:", utc_epoch_s)
             print("[DEBUG]    time_tuple_utc:", time_tuple_utc)
             
-        # Check for integer overflow
+        # check for integer overflow
         if last_ntp_epoch_s > 2147483647:  # 2^31 - 1
-            print("WARNING: Possible integer overflow!")
+            if config.DEBUG:
+                print("[WARNING]  Possible integer overflow!")
         
+        # returns the time tuple elements, the sub-seconds remainder from epoch_s, and the epoch_s
         return (time_tuple_utc[0], time_tuple_utc[1], time_tuple_utc[2], time_tuple_utc[3],
-                time_tuple_utc[4], time_tuple_utc[5], time_tuple_utc[6]), round(correction_ms), base_time_s
-
-    
+                time_tuple_utc[4], time_tuple_utc[5], time_tuple_utc[6]), round(correction_ms), utc_epoch_s
     
     
     
@@ -272,9 +295,6 @@ class TimeManager:
             print("[DEBUG]    next_sync time:", next_sync_hhmm)
         
         return next_sync_hhmm, seconds_to_sync
-
-
-    
     
     
     
@@ -284,23 +304,12 @@ class TimeManager:
         
         # calculate seconds until target time today
         seconds_today = (sync_target_hour - current_hour) * 3600 + \
-                       (sync_target_minute - current_minute) * 60 - \
-                       current_second
+                        (sync_target_minute - current_minute) * 60 - \
+                        current_second
         
         if seconds_today > 0:
             return seconds_today
         else:
             # target time already passed today, use tomorrow
             return seconds_today + 86400  # add one day
-            
-    
-    
-    def is_valid_epoch(self, epoch_s):
-        """Check if epoch_s is within reasonable bounds (years ~2015-2050)"""
-        invalid_epoch = False
 
-        if epoch_s > 1526355200 or epoch_s < 473385600:  # 473385600 = 2015-01-01
-            invalid_epoch = True
-        if invalid_epoch:
-            print(f"[ERROR]  Unreasonable epoch time: {epoch_s}")
-            print("This suggests an issue with NTP delta calculation")

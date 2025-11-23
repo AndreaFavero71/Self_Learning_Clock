@@ -35,7 +35,7 @@ ADC_IN = Pin(4)                     # GPIO reading battery voltage
 V_REF = 3.3                         # ADC reference voltage (assuming ESP32 powered at 3.3V)
 DIVIDER_RATIO = 2                   # voltage divider ratio:  (R2 + R41) / R41 = (100 + 100) / 100
 VBAT_READINGS = 20                  # number of readings for averaging
-CORRECTION = 1.0                    # correction of adc reading vs measured (multimeter)
+CORRECTION = 1.0                    # adc correction vs real (set > 1 when intepreted value is smaller than real)
 HYSTERESIS_V = 0.03                 # 30 mV hysteresys for battery_level change (prevent jumping up and down)
 
 # tuples with the volatge thresholds and battery levels
@@ -63,8 +63,8 @@ class Battery():
         self.batt_voltage, self.batt_level = self.check_battery()
         
 
-    def read_batt_voltage(self, adc_avg=0, bat_voltage=0):
-        """Monitor the battery voltage"""
+    def _read_batt_voltage(self, adc_avg=0, bat_voltage=0):
+        """Supporting function reading the battery voltage"""
         try:
             adc_avg = self.adc_bat.read()       # first ADC reading
             sleep_ms(5)                         # short sleep time
@@ -80,34 +80,35 @@ class Battery():
             return bat_voltage                  # returns the measured battery voltag
 
         except Exception as e:
-            print(f"Error reading battery voltage: {e}")
+            if config.DEBUG:
+                print(f"[ERROR]    Error reading battery voltage: {e}")
             return None
 
 
 
-    def get_batt_percentage(self, voltage, last_level=None):
+    def _get_batt_percentage(self, voltage):
         """
-        Simple closest+shift hysteresis:
+        Supporting function returning the battery level, based on
+        closest value and shift hysteresis:
           - pick closest nominal level (initial estimate)
           - to change level, require shifted threshold:
               higher level needs nominal + h
               lower  level needs nominal - h
           - allow at most one level change per call (towards estimate)
+        
         Args:
             voltage (float): measured battery voltage
-            last_level (int|None): last stable percentage (None for first call)
             h (float): hysteresis voltage (V)
         Returns:
             int: new stable battery level (percent)
         """
 
         
-        # 1) find closest nominal index
+        # find closest nominal index
         closest_index = min(range(len(self.voltage_levels)), key=lambda i: abs(voltage - self.voltage_levels[i]))
         estimated_level = self.percent_levels[closest_index]
-        
-
-        # if no previous level, accept estimate
+    
+        # if no previous level, accept the first estimate battery level
         if self.last_level is None:
             if self.debug:
                 print("[DEBUG]    First battery level detection:", estimated_level)
@@ -125,14 +126,17 @@ class Battery():
 
         # moving UP (towards higher percent) -> smaller index number
         if closest_index < last_index:
+            
             # candidate index we want to move to:
             candidate_index = closest_index
+            
             # but limit to only one-step change if estimate is >1 step away
             if last_index - candidate_index > 1:
                 candidate_index = last_index - 1
 
             # require voltage >= nominal_of_candidate + h to accept moving up
             threshold = self.voltage_levels[candidate_index] + h
+            
             if voltage >= threshold:
                 return self.percent_levels[candidate_index]
             else:
@@ -154,25 +158,34 @@ class Battery():
 
 
     def check_battery(self):
-
-        batt_voltage = round(self.read_batt_voltage(),3) # battery voltage is measured   
+        """Hub function for battery voltage and battery level"""
+        
+        # get the battery voltage from the supporting function (average of n readings)
+        batt_voltage = round(self._read_batt_voltage(),3) # battery voltage is measured   
+        
+        # append the battery voltage to the list
         self.batt_voltage_list.append(batt_voltage)
         
+        # case there are more than one value in the list
         if len(self.batt_voltage_list) > 1:
+            # average battery voltage is calculated 
             batt_voltage = sum(self.batt_voltage_list) / len(self.batt_voltage_list)
         
+        # the average battery voltage is assigned to the instance variable
         self.batt_voltage = batt_voltage
         
+        # case there are more than 10 elemnts in the list
         if len(self.batt_voltage_list) > 10:
-            self.batt_voltage_list.pop(0)
-            
-        self.batt_level = self.get_batt_percentage(batt_voltage)
+            self.batt_voltage_list.pop(0)      # the older value gets removed
+        
+        # call the support function to get the battery level, based on the average battery voltage
+        self.batt_level = self._get_batt_percentage(batt_voltage)
+        
+        # the battery level is assigned to the last_batt_level
         self.last_batt_level = self.batt_level
         
         if self.debug:
             print(f"[DEBUG]    Battery voltage = {batt_voltage:.3f}V,  Battery level = {self.batt_level}\n")
         
+        # battery volatge and level are returned
         return self.batt_voltage ,self.batt_level
-
-    
-    

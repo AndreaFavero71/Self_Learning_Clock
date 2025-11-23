@@ -1,6 +1,12 @@
 # This file is executed on every boot (including wake-boot from deepsleep)
 
 
+##################################################################
+# To get the code starting at the boot, uncomment the below code #
+# Before doing so, ensures the code is running without errors    #
+##################################################################
+
+
 
 # from utime import sleep_ms
 # t_ms = 20000
