@@ -40,20 +40,22 @@ import framebuf, gc
 
 
 class Display():
-    def __init__(self, wdt_manager, lightsleep_active, battery, degrees, debug=False, logo_time_ms=0):
+    def __init__(self, wdt_manager, lightsleep_active, battery, degrees, hour12, am_pm_label, debug=False, logo_time_ms=0):
 
         self.wdt_manager = wdt_manager
         self.lightsleep_active = lightsleep_active
         self.battery = battery
         self.degrees = degrees
+        self.hour12 = hour12
+        self.am_pm_label = am_pm_label
         self.debug = debug
-        self.sleeping = False
         
+        self.sleeping = False
         self.bg = True
         self.reset_variables()
         
         self.epd = EPD()
-        self.reset()
+        self.edp_wakeup()
         
         self.wri_110 = Writer(self.epd, helvetica110b_digits, verbose=False)
         self.wri_28  = Writer(self.epd, helvetica28b_subset, verbose=False)
@@ -61,38 +63,56 @@ class Display():
         self.wri_17  = Writer(self.epd, helvetica17b_subset, verbose=False)
         
         # coordinates for labels and fields at the EPD
-        self.free_txt_x, self.free_txt_y      = 26,  246
-        self.date_x, self.date_y              = 12,   20
-        self.time_x, self.time_y              = 11,   90
-        self.wifi_x, self.wifi_y              =  2,  260
-        self.ntp_x, self.ntp_y                =  2,  280
+        self.free_txt_x, self.free_txt_y      =  26, 246
+        self.date_x, self.date_y              =  12,  20
+        self.time_x, self.time_y              =  11,  90
+        self.wifi_x, self.wifi_y              =   2, 260
+        self.ntp_x, self.ntp_y                =   2, 280
         self.err_x, self.err_y                = 127, 260
         self.temp_x, self.temp_y              = 127, 282
-        self.sync_lable_x, self.sync_lable_y  = 300, 260
-        self.nextsync_x, self.nextsync_y      = 300, 279
+        self.sync_lable_x, self.sync_lable_y  = 299, 260
         
-        # get xy coordinates for HH:MM time characters (m1,m2 are minutes, s1,s2 are seconds, c is colon)
-        self.digits_coordinates(ref_x=11, ref_y=80)
+        # case am_pm_label flag is set True the 12-hour format is set True 
+        if self.hour12 and self.am_pm_label:
+            self.am_x, self.am_y              =  12,  64
+            self.nextsync_x, self.nextsync_y  = 299, 279
+            # get xy coordinates for HH:MM time characters (m1,m2 are minutes, s1,s2 are seconds, c is colon)
+            self.digits_coordinates(ref_x=11, ref_y=100)
         
+        # case the 12-hour format is set False or am_pm_label flag is set False
+        if not self.hour12 or not self.am_pm_label:
+            self.nextsync_x, self.nextsync_y  = 306, 279
+            # get xy coordinates for HH:MM time characters (m1,m2 are minutes, s1,s2 are seconds, c is colon)
+            self.digits_coordinates(ref_x=11, ref_y=88)
+            
+        # force garbage collection
         gc.collect()
         
+        # upload the SLC logo from the binary file into a bytearray
         with open("lib/lib_display/SLC_logo_328x208.bin", "rb") as f:  # opens the binary file with welcome bmp image
             slc_logo_image = bytearray(f.read())           # makes a bytearray from the image
         
+        # upload the SLC text-logo from the binary file into a bytearray
         with open("lib/lib_display/SLC_text_280x64.bin", "rb") as f:   # opens the binary file with welcome bmp image
             slc_logo_text = bytearray(f.read())            # makes a bytearray from the image
         
+        # generate framebuffer objects with the SLC logo and SLC text-logo
         self.slc_logo = framebuf.FrameBuffer(slc_logo_image, 328, 208, framebuf.MONO_HLSB)
         self.slc_text = framebuf.FrameBuffer(slc_logo_text, 280, 64, framebuf.MONO_HLSB)
         
+        # delete the bytearrays of SLC logo and SLC text-logo
         del slc_logo_image, slc_logo_text
+        
+        # force garbage collection
         gc.collect()
         
+        # case the Display is initialized with logo_time_ms > 0
         if logo_time_ms > 0:
             # plot the SLC logo with its text
             self.plot_slc(text=True, plot=True, show_ms=logo_time_ms, lightsleep_req=False)
-
-        self.sleep()                # prevents display damages on the long run (command takes ca 100ms)
+        
+        
+        self.epd_sleep()            # prevents display damages on the long run (command takes ca 100ms)
 
     
     
@@ -100,19 +120,14 @@ class Display():
         """Use the WDT manager instead of global WDT"""
         if self.wdt_manager:
             self.wdt_manager.feed(label)
-    
-    
-    def reset(self):
-        self.epd.reset()
-        self.sleeping = False
         
         
-    def wakeup(self):
+    def edp_wakeup(self):
         self.epd.reset()            # wakes up the display from sleeping, and enables partial refresh
         self.sleeping = False
 
     
-    def sleep(self):
+    def epd_sleep(self):
         self.sleeping = True
         self.epd.sleep()            # prevents display damages on the long run
     
@@ -120,7 +135,7 @@ class Display():
     def partial_update(self):
         self.epd.partialDisplay()   # plots the buffer to the display (takes ca 0.6 secs)
         if not self.sleeping:
-            self.sleep()
+            self.epd_sleep()
         
         
     def plot_slc(self, text=False, plot=False, show_ms=10000, lightsleep_req=True):
@@ -131,7 +146,7 @@ class Display():
         if self.debug:
             print(f"[DISPLAY]  Plotting the SLC logo")
         if self.sleeping:
-            self.wakeup()
+            self.edp_wakeup()
 
         self.epd.fill(0xff)                  # fills the framebuffer with 1 (0 inverted)
         self.epd.blit(self.slc_logo, 36, 6)  # plots the Self learning Clock icon
@@ -141,7 +156,7 @@ class Display():
         
         if plot:
             self.epd.partialDisplay()        # epd partial update 
-            self.sleep()                     # prevents display damages on the long run (command takes ca 100ms)
+            self.epd_sleep()                 # prevents display damages on the long run (command takes ca 100ms)
         
         self.show_time(show_ms, lightsleep_req)
         self.bg = True                       # activates the background plot request
@@ -222,7 +237,11 @@ class Display():
         self.last_ntp_bool = -1
         self.last_temp = -1
         self.last_res_error = -1
-        self.last_sync = -1
+        self.last_sync = "99:99"
+        
+        if self.am_pm_label:
+            self.last_am_pm = -1
+            
     
     
     
@@ -245,7 +264,7 @@ class Display():
         if not battery_low:
             self.epd.fill_rect(0, 252, 399, 2, 0)         # add a black horizzontal line
             self.epd.fill_rect(119, 253, 2, 53, 0)        # add a black vertical line, to separate fields
-            self.epd.fill_rect(292, 253, 2, 53, 0)        # add a black vertical line, to separate fields
+            self.epd.fill_rect(291, 253, 2, 53, 0)        # add a black vertical line, to separate fields
 
             Writer.set_textpos(self.epd, self.wifi_y, self.wifi_x) 
             self.wri_17.printstring("WIFI", invert=True) # WIFI lable
@@ -270,7 +289,7 @@ class Display():
 
 
     def show_data(self, H1, H2, M1, M2, dd, day, d_string, temp, batt_level,
-                  res_error_ppm, next_sync, wifi_bool, ntp_bool, battery_low=False, plot_all=True):
+                  res_error_ppm, next_sync, wifi_bool, ntp_bool, am=False, battery_low=False, plot_all=True):
         """
         Plots the data to the framebuffer and shows it on the display.
         The function also manages partial update for the fields/digits that changes since
@@ -281,7 +300,7 @@ class Display():
             self.background(battery_low=battery_low, full_refresh=True)
              
         if self.sleeping:
-            self.wakeup()
+            self.edp_wakeup()
         
         update_epd = False
         
@@ -292,7 +311,7 @@ class Display():
         
         if dd != self.last_dd:
             # day of the week
-            self.epd.fill_rect(self.date_x, self.date_y, 180, 26, 1)     # add a white rect to erase old text
+            self.epd.fill_rect(self.date_x, self.date_y, 200, 26, 1)     # add a white rect to erase old text
             Writer.set_textpos(self.epd, self.date_y, self.date_x)       # y, x order
             self.wri_28.printstring(day, invert=True)                    # day of the week 
             
@@ -303,9 +322,16 @@ class Display():
             update_epd = True
         
         if H1 != self.last_H1:
-            t_string = f"{H1+H2}"
-            Writer.set_textpos(self.epd, self.m1_y, self.m1_x)
+            if self.hour12 and H1 == '0':
+                if self.last_H1 == '1' or self.last_H1 == -1:
+                    self.epd.fill_rect(self.m1_x, self.m1_y, 82, 110, 1)  # add a white rect to erase old text
+                t_string = f"{H2}"
+                Writer.set_textpos(self.epd, self.m1_y, self.m1_x+82)
+            else:
+                t_string = f"{H1+H2}"
+                Writer.set_textpos(self.epd, self.m1_y, self.m1_x)
             self.wri_110.printstring(t_string, invert=True)
+            
             t_string = f"{M1+M2}"
             Writer.set_textpos(self.epd, self.s1_y, self.s1_x)
             self.wri_110.printstring(t_string, invert=True)
@@ -342,7 +368,15 @@ class Display():
             self.last_M2 = M2
             update_epd = True
 
-        
+        if self.am_pm_label and self.hour12:
+            if am != self.last_am_pm:
+                if am:
+                    Writer.set_textpos(self.epd, self.am_y, self.am_x)
+                    self.wri_28.printstring('AM', invert=True)
+                else:
+                    Writer.set_textpos(self.epd, self.am_y, self.am_x)
+                    self.wri_28.printstring('PM', invert=True)
+             
         if battery_low:
             self.text("BATTERY  LOW ...", -1, -1)
         
@@ -371,15 +405,32 @@ class Display():
                 update_epd = True
             
             if temp != self.last_temp:
-                self.epd.fill_rect(self.temp_x+100, self.temp_y, 58, 19, 1)  # add a white rect to erase old text
+                self.epd.fill_rect(self.temp_x+100, self.temp_y, 58, 19, 1) # add a white rect to erase old text
                 Writer.set_textpos(self.epd, self.temp_y, self.temp_x+100)
                 self.wri_17.printstring(f"{round(temp,1)} ", invert=True)
                 self.last_temp = temp
                 update_epd = True
 
             if next_sync != self.last_sync:
-                Writer.set_textpos(self.epd, self.nextsync_y, self.nextsync_x)
-                self.wri_22.printstring(f"{next_sync}", invert=True)
+                if not self.hour12:                  # case 24-hours format
+                    Writer.set_textpos(self.epd, self.nextsync_y, self.nextsync_x)
+                    self.wri_22.printstring(f"{next_sync}", invert=True)
+                
+                elif self.hour12:                     # case 12-hours format
+                    if next_sync[2] == ':' :          # case hour uses 2 digits
+                        Writer.set_textpos(self.epd, self.nextsync_y, self.nextsync_x - 4)
+                    
+                    elif next_sync[1] == ':' :        # case hour uses 1 digit
+                        Writer.set_textpos(self.epd, self.nextsync_y, self.nextsync_x + 13)
+                        if self.last_sync[2] == ':' : # case previous hour used 2 digits
+                            self.epd.fill_rect(self.nextsync_x - 4, self.nextsync_y, 18, 21, 1)
+                    
+                    self.wri_22.printstring(f"{next_sync[:-1]}", invert=True)
+                    
+                    if self.am_pm_label:
+                        Writer.set_textpos(self.epd, self.nextsync_y + 4, self.nextsync_x + 73)
+                        self.wri_17.printstring(f"{next_sync[-1]}M", invert=True)
+                    
                 self.last_sync = next_sync
                 update_epd = True
          
@@ -390,4 +441,93 @@ class Display():
             
         
 
+if __name__ == "__main__":
+    """
+    The __main__ function has the purpose to visualize the display layout, by
+    plotting random values.
+    Modules like config.py and time_manager are are used.
+    """
+    
+    from lib.config import config
+    from lib.time_manager import TimeManager
+    from random import randint
+    
+    print("\nDisplay test, with random values\n")
+    
+    # initialize the display
+    display = Display(wdt_manager = None,
+                      lightsleep_active = config.LIGHTSLEEP_USAGE,
+                      battery = config.BATTERY,
+                      degrees = config.TEMP_DEGREES,
+                      hour12 = config.HOUR_12_FORMAT,
+                      am_pm_label = config.AM_PM_LABEL,
+                      debug = config.DEBUG,
+                      logo_time_ms = 1000
+                      )
+    
+    # initialize the time_manager
+    time_mgr = TimeManager(config)
+    
+    print("\n"*2)
+    run = -1
+    
+    while True:
+        
+        # generate random values for all fields
+        year          = randint(2025, 2059)
+        month         = randint(1, 13)
+        mday          = randint(1, 32)
+        hour          = randint(0, 23)
+        minute        = randint(0, 59)
+        second        = randint(0, 59)
+        weekday       = randint(0, 6)
+        yearday       = randint(1, 366)
+        temp          = randint(0, 500)/10
+        res_error_ppm = randint(-2000, 2000)
+        ntp_bool      = (True, False)[randint(0,1)]
+        wifi_bool     = (True, False)[randint(0,1)]
+        batt_level    = (0, 10, 10, 40, 60, 80, 100)[randint(0,5)]
+        
+        # random next_sync for 24-hour format
+        if not config.HOUR_12_FORMAT:
+            next_sync = "{:02d}".format(randint(0, 24)) + ":" + "{:02d}".format(randint(0, 59)) 
+        
+        # random next_sync for 12-hour format
+        elif config.HOUR_12_FORMAT:
+            h = randint(0, 12)
+            m = randint(0, 59)
+            next_sync = "{}".format(h) + ":" + "{:02d}".format(m)
+            next_sync += ('A', 'P')[randint(0,1)]
 
+        # generate the time_tuple with random value (API order as per microPython)
+        time_tuple = (year, month, mday, hour, minute, second, weekday, yearday)
+        
+        # retreieve date and time strings
+        dd, day, d_string = time_mgr.get_date(time_tuple)
+        H1, H2, M1, M2, am = time_mgr.get_time_digits(time_tuple)
+        
+        # define whether the EPD shoyld partial update or full refresh
+        if run < 0 or run >= 60:
+            run = 0
+            plot_all = True
+        else:
+            plot_all = False
+        
+        # printing to the shell
+        if config.HOUR_12_FORMAT:
+            time24 = "{:02d}".format(hour) + ":" + "{:02d}".format(minute)
+            print(f"Time24 {time24} \t Time12 {H1}{H2}:{M1}{M2} {'AM' if am else 'PM'} \t next_sync(12) {next_sync}")
+        elif not config.HOUR_12_FORMAT:
+            print(f"Time: {H1}{H2}:{M1}{M2} \t next_sync {next_sync}")
+        
+        # call the display 
+        display.show_data(H1, H2, M1, M2, dd, day, d_string, temp, batt_level,
+                          res_error_ppm, next_sync, wifi_bool, ntp_bool, am,
+                          battery_low=False, plot_all=plot_all)
+        
+        run += 1
+        sleep_ms(5000)
+        
+        
+        
+        

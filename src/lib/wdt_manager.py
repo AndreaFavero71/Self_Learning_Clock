@@ -36,9 +36,7 @@ class WDTManager:
         self.wdt = None
         self.last_feed_ticks_ms = ticks_ms()
         self.enabled = False
-    
-    
-    
+        
     def initialize(self):
         """Initialize WDT"""
         if not config.WDT_ENABLED:
@@ -47,42 +45,71 @@ class WDTManager:
         try: 
             self.wdt = WDT(timeout=config.wdt_timeout_ms)
             self.enabled = True
-            if config.DEBUG:
-                print(f"[WDT]      Initialized WDT with timeout: {config.wdt_timeout_ms}ms")
+            print(f"[WDT]      Initialized WDT with timeout: {config.wdt_timeout_ms}ms")
             
         except Exception as e:
-            if config.DEBUG:
-                print(f"[WDT_ERROR] Failed to initialize WDT: {e}")
+            print(f"[WDT_ERROR] Failed to initialize WDT: {e}")
             self.enabled = False
     
     
     
     def feed(self, label=""):
-        """Feed the watchdog timer with safety checks"""
+        """Feed the watchdog timer with safety checks."""
         if not self.enabled or not self.wdt:
             return
-            
+        
         try:
             current_ticks = ticks_ms()
             time_since_last_feed = ticks_diff(current_ticks, self.last_feed_ticks_ms)
-            
-            # warn if we're getting close to timeout
-            if (time_since_last_feed > config.wdt_timeout_ms * config.wdt_warn_fraction and 
+
+            # Warn and log if getting close to timeout
+            if (time_since_last_feed > config.wdt_timeout_ms * config.wdt_warn_fraction and
                 time_since_last_feed < config.wdt_timeout_ms):
-                if config.DEBUG:
-                    print(f"[WDT] {label}, fed after {time_since_last_feed} ms (timeout={config.wdt_timeout_ms} ms)")
                 
-                # log to file if needed
-                try:
-                    with open(config.WDT_LOG_FILE, "a") as f:
-                        f.write(f"{gmtime(time())} [WDT] {label}, fed after {time_since_last_feed} ms\n")
-                except:
-                    pass
-            
+                msg = f"[WDT]      Label:{label}, got fed after {time_since_last_feed} ms (timeout={config.wdt_timeout_ms} ms)"
+                if config.DEBUG:
+                    print(msg)
+
+                # logging the event to a text file
+                self._log_wdt_event(config.WDT_LOG_FILE, msg)
+
+            # Feed the watchdog
             self.wdt.feed()
             self.last_feed_ticks_ms = current_ticks
+
+        except Exception as e:
+            print(f"[WDT_FEED_ERROR] {e}")
+    
+    
+    
+    def _log_wdt_event(self, fname, message, max_records=100):
+        """Append a watchdog event to the log file, keeping only the last `max_records` lines."""
+        try:
+            # build a readable timestamp
+            ts = gmtime(time())
+            timestamp = f"{ts[0]:04d}-{ts[1]:02d}-{ts[2]:02d} {ts[3]:02d}:{ts[4]:02d}:{ts[5]:02d}"
+            new_line = f"{timestamp} {message}\n"
+
+            # load existing lines (if file exists)
+            try:
+                with open(config.WDT_LOG_FILE, "r") as f:
+                    lines = f.readlines()
+            except OSError:
+                lines = []
+
+            # append the new_line to the existing ones
+            lines.append(new_line)
             
+            # trim the file if exceeding max_records
+            if len(lines) > max_records:
+                lines = lines[-max_records:]
+
+            # rewrite log
+            with open(fname, "w") as f:
+                for line in lines:
+                    f.write(line)
+
         except Exception as e:
             if config.DEBUG:
-                print(f"[WDT_ERROR] {e}")
+                print(f"[WDT_LOG_ERROR] {e}")
 

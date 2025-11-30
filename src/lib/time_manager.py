@@ -154,14 +154,30 @@ class TimeManager:
     
     
     
-    def get_time_digits(self, time_tuple):
-        HH = "{:02d}".format(time_tuple[3])
+    def get_time_digits(self, time_tuple, am=True):
+        """
+        Returns the individual hours and minutes digits in string format.
+        Hours and minutes are 0 padded.
+        Converts to 12-hour format is that is set True at config.py
+        Anti-meridian flag is always returned
+        """
+        HH = time_tuple[3]
+        if self.config.HOUR_12_FORMAT:  # case of 12-Hour format
+            if HH == 0:
+                HH = 12
+            elif HH >= 12:
+                am = False
+                if HH > 12:
+                    HH -= 12
+        
+        HH = "{:02d}".format(HH)
         MM = "{:02d}".format(time_tuple[4])
-        return HH[0], HH[1], MM[0], MM[1]
+        return HH[0], HH[1], MM[0], MM[1], am
     
     
     
     def get_date(self, time_tuple):
+        """Returns the date fields in string format."""
         yyyy = time_tuple[0]
         mm   = time_tuple[1]
         dd   = time_tuple[2]
@@ -257,8 +273,7 @@ class TimeManager:
     
     
     
-    def next_sync_time(self, epoch_s, current_sync_interval_ms, sync_target_hour, sync_target_minute, ntp_failures=0):        
-        
+    def next_sync_time(self, epoch_s, current_sync_interval_ms, sync_target_hour, sync_target_minute, ntp_failures=0, am=True):        
         
         # calulates the UTC time, eventually corrected by the DST
         utc_tz_dst = self.get_UTC_TZ(epoch_s)
@@ -289,8 +304,29 @@ class TimeManager:
         next_sync_tuple = gmtime(local_epoch_s + seconds_to_sync)
         
         # next sync time in text format HH:MM
-        next_sync_hhmm = "{:02d}".format(next_sync_tuple[3]) + ":" + "{:02d}".format(next_sync_tuple[4])
+        HH = next_sync_tuple[3]  # here HH is still in 24-hour format
         
+        # case 24-hour format mode
+        if not self.config.HOUR_12_FORMAT:
+            next_sync_hhmm = "{:02d}".format(HH) + ":" + "{:02d}".format(next_sync_tuple[4])
+        
+        # case 12-hour format mode
+        elif self.config.HOUR_12_FORMAT: 
+            if HH == 0:
+                HH = 12
+            elif HH >= 12:
+                am = False
+                if HH > 12:
+                    HH -= 12
+            if HH < 10:
+                next_sync_hhmm = "{}".format(HH) + ":" + "{:02d}".format(next_sync_tuple[4])
+            else:
+                next_sync_hhmm = "{:02d}".format(HH) + ":" + "{:02d}".format(next_sync_tuple[4])
+            if am:
+                next_sync_hhmm += 'A'
+            else:
+                next_sync_hhmm += 'P'
+
         if self.config.DEBUG:
             print("[DEBUG]    next_sync time:", next_sync_hhmm)
         

@@ -11,7 +11,7 @@ More info at:
 
 # features
 QUICK_CHECK        = True#False          # set True only for code debugging
-OPEN_NETWORKS      = False          # set True if open wify at reach
+OPEN_NETWORKS      = False          # set True if open wifi at reach
 BATTERY            = True           # set True if battery operated (dedicated LiLyGO T8-S3 connector)
 WDT_ENABLED        = True           # set True always
 PUSH_FILE_ENABLED  = False          # set True only for study purpose
@@ -30,13 +30,15 @@ NTP_SERVERS = ['pool.ntp.org', 'nl.pool.ntp.org', 'europe.pool.ntp.org',
                'time.nist.gov', 'time.google.com', 'time.windows.com']
 
 # regional settings
-UTC_TZ = 1                              # timezone UTC (1 is the one for Amsterdam, in The Netherland)
-DST = True                              # True if the Country uses DST (Day Saving Time), like The Netherlands does
-DST_REGION   = "EU"                     # or 'US' or 'AU' (Australia); Only needed if DST=True, see dst.json for rules
-TEMP_DEGREES = 'C'                      # 'C' for Celsius, 'F' for Farenheit
-DATE_FORMAT  = 'DMY'                    # date format, options are 'DMY', 'MDY' and 'YMD'
+UTC_TZ = 1                              # set the timezone UTC (1 is the one for Amsterdam, in The Netherland)
+DST = True                              # set True if the Country uses DST (Day Saving Time), like The Netherlands does
+DST_REGION   = "EU"                     # set 'EU' or 'US' or 'AU' (Australia); Only needed if DST=True, see dst.json for rules
+TEMP_DEGREES = 'C'                      # set 'C' for Celsius, 'F' for Farenheit
+DATE_FORMAT  = 'DMY'                    # set date format, options are 'DMY', 'MDY' and 'YMD'
+HOUR_12_FORMAT = False                  # set True for 12-hour format of time
+AM_PM_LABEL = True                      # set False to remove AM / PM label from 12-hour time format
 
-DAYS = ('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY')
+DAYS = ('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY') # day of the week, starting from Monday
 
 
 # EPD display related settings
@@ -85,7 +87,7 @@ if QUICK_CHECK:                           # when quick test
     LIGHTSLEEP_USAGE = False              # disable lightsleep
     DEBUG = True                          # enable DEBUG (verbose printing)
 else:                                     # when normal operation
-    NTP_SYNC_INTERVAL_MS = 7_200_000      # (2 hours) interval at the starts, increasing it later
+    NTP_SYNC_INTERVAL_MS = 7_200_000      # (2 hours) NTP first interval, increasing it later
     LIGHTSLEEP_USAGE = True               # enables lightsleep
     DEBUG = False                         # disable DEBUG
 
@@ -100,4 +102,4 @@ if WDT_ENABLED:
 # this must be set according to your networks
 # firewall might block python, requiring adding exemption rules
 if PUSH_FILE_ENABLED:
-    SERVER_URL = 'http://192.168.2.4:8001/upload'
+    SERVER_URL = 'http://192.168.2.4:8000/upload'

@@ -1,5 +1,5 @@
 """
-Andrea Favero 20251123
+Andrea Favero 20251130
 
 
 Self-Learning Clock (MicroPython)
@@ -54,7 +54,7 @@ SOFTWARE.
 """
 
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 # import standard modules
@@ -107,6 +107,8 @@ class SelfLearningClock:
                                lightsleep_active = config.LIGHTSLEEP_USAGE,
                                battery = config.BATTERY,
                                degrees = config.TEMP_DEGREES,
+                               hour12 = config.HOUR_12_FORMAT,
+                               am_pm_label = config.AM_PM_LABEL,
                                debug = config.DEBUG,
                                logo_time_ms = logo_time_ms
                                )
@@ -133,7 +135,7 @@ class SelfLearningClock:
             self.batt_voltage = -1  # assign an arbitrary value to the variable 
             self.batt_level = -1    # assign an arbitrary value to the variable
         
-        # initialize WDT after all components are initialized
+        # initialize WDT (after all components are initialized)
         if config.WDT_ENABLED:
             self.wdt_manager.initialize() 
         
@@ -178,9 +180,17 @@ class SelfLearningClock:
             self.ntp_tot_delay_ms_list = deque([], datapoints)
             self.ntp_rnd_latency_ms_list = deque([], datapoints)
             self.display_interval_ms_list = deque([], datapoints)
-    
-    
-    
+        
+        ##############################################################
+        ##############################################################
+        # force wdt operation for debug purpose (do not uncomment it)
+        # for i in range(3):
+        #    self.network_mgr.feed_wdt(label="test wdt")
+        #    sleep_ms(int(1.3 * config.DISPLAY_REFRESH_MS))
+        ##############################################################
+        ##############################################################
+        
+        
     
     def get_reset_reason(self):
         """Checks the reason for the MCU boot"""
@@ -203,16 +213,39 @@ class SelfLearningClock:
     
     
     def write_reset_reason(self, reset_reason, reset_msg):
-        """Writes the reset reason to a text file."""
-        # wdt feeding
+        """Writes the reset reason to a text file, trimming old entries if needed."""
+
+        MAX_RECORDS = 100
+
+        # feed watchdog
         self.network_mgr.feed_wdt(label="write_reset_reason")
-        
+
         try:
-            with open(config.RESET_FILE_NAME, "a") as file:
-                file.write(f"Time: {gmtime(time())},  RST_reason: {str(reset_reason)},  RST_msg: {str(reset_msg)}\n")
-        except OSError as e:
+            # try reading existing lines (if file exists)
+            try:
+                with open(config.RESET_FILE_NAME, "r") as f:
+                    lines = f.readlines()
+            except OSError:
+                lines = []
+
+            # build the new log line
+            timestamp = gmtime(time())  # (year, month, mday, hour, minute, second, ...)
+            formatted_time = f"{timestamp[0]:04d}-{timestamp[1]:02d}-{timestamp[2]:02d} {timestamp[3]:02d}:{timestamp[4]:02d}:{timestamp[5]:02d}"
+            new_line = f"Time: {formatted_time},  RST_reason: {reset_reason},  RST_msg: {reset_msg}\n"
+
+            # append and trim if necessary
+            lines.append(new_line)
+            if len(lines) > MAX_RECORDS:
+                lines = lines[-MAX_RECORDS:]
+
+            # rewrite the file
+            with open(config.RESET_FILE_NAME, "w") as f:
+                for line in lines:
+                    f.write(str(line))
+
+        except Exception as e:
             if config.DEBUG:
-                print(f"[ERROR]   Failed to write reset reason: {e}")
+                print(f"[ERROR]    Failed to write reset reason: {e}")
     
     
     
@@ -262,37 +295,63 @@ class SelfLearningClock:
     
     
     def write_to_csv(self, epoch, temp, error_ms, ntp_offset_ms, rnd_latency_ms, tot_latency_ms):
-        """Writes the stats on a tab separated file."""
-        
+        """
+        Writes the stats on a tab separated file, trimming the file if too large.
+        File trimming is made in RAM, and it considers a small file size.
+        """
+
+        MAX_RECORDS = 200  # keep only the newest 200 records (excluding header)
+
         if config.DEBUG:
-            print(f"[DEBUG]    Function write_to_csv called with epoch={epoch}, file={self.stats_file_name}")
-        
-        # wdt feeding
+            print(f"[DEBUG]    write_to_csv called with epoch={epoch}, file={self.stats_file_name}")
+
         self.network_mgr.feed_wdt(label="write_to_csv")
 
         try:
-            # if this is the first write since boot, create the file and write the header
+            # create file with header if not yet done
             if not hasattr(self, "csv_header_written"):
                 with open(self.stats_file_name, "w") as file:
                     header = ("epoch\ttemp\terror_ms\tcorrection_ms\tdrift_ppm\t"
                               "ntp_offset_ms\trnd_latency_ms\ttot_latency_ms\t"
                               "smoothed_ppm\tdisplay_interval_ms\tbatt_voltage\t"
-                              "battery_level\n"
-                              )
+                              "battery_level\n")
                     file.write(header)
                 self.csv_header_written = True
 
-            # now append data
-            with open(self.stats_file_name, "a") as file:
-                data = (
-                    f"{epoch}\t{temp:.2f}\t{error_ms}\t{self.correction_ms}\t"
-                    f"{self.measured_drift_ppm:.6f}\t{ntp_offset_ms}\t{rnd_latency_ms}\t"
-                    f"{tot_latency_ms}\t{self.smoothed_drift_ppm:.6f}\t{self.display_interval_ms}\t"
-                    f"{self.batt_voltage}\t{round(self.batt_level,3)}\n"
-                )
-                file.write(data)
+            # read existing lines
+            try:
+                with open(self.stats_file_name, "r") as file:
+                    lines = file.readlines()
+            except OSError:
+                # file may not exist yet
+                lines = ["epoch\ttemp\terror_ms\tcorrection_ms\tdrift_ppm\t"
+                         "ntp_offset_ms\trnd_latency_ms\ttot_latency_ms\t"
+                         "smoothed_ppm\tdisplay_interval_ms\tbatt_voltage\t"
+                         "battery_level\n"]
+
+            # build new data line
+            new_line = (
+                f"{epoch}\t{temp:.2f}\t{error_ms}\t{self.correction_ms}\t"
+                f"{self.measured_drift_ppm:.6f}\t{ntp_offset_ms}\t{rnd_latency_ms}\t"
+                f"{tot_latency_ms}\t{self.smoothed_drift_ppm:.6f}\t{self.display_interval_ms}\t"
+                f"{self.batt_voltage}\t{round(self.batt_level,3)}\n"
+            )
+
+            # append and trim if necessary
+            lines.append(new_line)
+
+            # first line is header → data start from index 1
+            if len(lines) - 1 > MAX_RECORDS:
+                # keep header + last MAX_RECORDS lines
+                lines = [lines[0]] + lines[-MAX_RECORDS:]
+
+            # write back
+            with open(self.stats_file_name, "w") as file:
+                for line in lines:
+                    file.write(line)
 
         except Exception as e:
+            print(f"[ERROR]    write_to_csv failed: {e}")
             raise
     
 
@@ -361,7 +420,7 @@ class SelfLearningClock:
         try:    
             
             # retrieve the single gigits for hour and minute
-            H1, H2, M1, M2 = self.time_mgr.get_time_digits(self.time_tuple)
+            H1, H2, M1, M2, am = self.time_mgr.get_time_digits(self.time_tuple)
             
             # retrieve the date fields
             dd, day, d_string = self.time_mgr.get_date(self.time_tuple)
@@ -380,14 +439,14 @@ class SelfLearningClock:
             # send the updated info to the display Class
             self.display.show_data(H1, H2, M1, M2, dd, day, d_string, current_temp, self.batt_level,
                                    self.res_error_ppm, self.next_sync, self.network_mgr.wifi_bool,
-                                   self.network_mgr.ntp_bool, battery_low=battery_low, plot_all=plot_all)
+                                   self.network_mgr.ntp_bool, am, battery_low=battery_low, plot_all=plot_all)
 
             # wdt feeding
             self.network_mgr.feed_wdt(label="update_display_2")
         
         except Exception as e:
             if config.DEBUG:
-                print(f"[ERROR]   Display error: {e}")
+                print(f"[ERROR]    Display error: {e}")
             raise
     
     
@@ -537,7 +596,7 @@ class SelfLearningClock:
         
         # time reference for the next NTP sync
         self.next_sync, self.secs_to_next_sync = self.time_mgr.next_sync_time(epoch_s, self.current_sync_interval_ms,
-                                                                            sync_target_hour, sync_target_minute)            
+                                                                              sync_target_hour, sync_target_minute)            
         
         # NTP time in milliseconds
         epoch_ms = epoch_s * 1000 + epoch_frac_ms

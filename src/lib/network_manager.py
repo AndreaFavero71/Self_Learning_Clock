@@ -41,7 +41,6 @@ if config.PUSH_FILE_ENABLED:
     from urequests import post
 
 
-
 class NetworkManager:
     def __init__(self, wdt_manager):
         
@@ -1066,18 +1065,12 @@ class NetworkManager:
                         # feed the wdt
                         self.feed_wdt(label="get_ntp_time_6")   # feed the wdt
                         
-                        # case of error at the packet received
-                        if error:
-                            try:
-                                # case of quick test, an error is saved to a text file
-                                if config.QUICK_CHECK:
-                                    with open(config.NETWORKS_LOG_FILE_NAME,"a") as f:
-                                        f.write(f"NTP_RECV_ERROR,{time()},{repr(e)}\n")
-                            except Exception as e:
-                                # feedback is printed to the terminal
-                                if config.DEBUG:
-                                    print(f"[ERROR]    log error: {e}")
-                                
+                        # case of error at the packet received and
+                        # case of quick test, an error is saved to a text file
+                        if error and config.QUICK_CHECK:
+                            text_row = f"NTP_RECV_ERROR,{time()},{repr(e)}\n"
+                            self._write_text_file(text_row)
+           
                     # case the or error in the attempt to comunicate with NTP server 
                     except Exception as e:
                         if s:
@@ -1147,15 +1140,9 @@ class NetworkManager:
         
         # case of quick test, some NTP timing related data is saved
         if config.QUICK_CHECK:
-            try:
-                # write the NTP 
-                with open(config.NETWORKS_LOG_FILE_NAME, "a") as f:
-                    f.write(f"NTP,{time()},{tot_time_ms}\n")
-            except Exception as e:
-                # feedback is printed to the terminal
-                if config.DEBUG:
-                    print(f"[ERROR]    log error: {e}")
-        
+            text_row = f"NTP,{time()},{tot_time_ms}\n" 
+            self._write_text_file(text_row)
+
         # feed the wdt
         self.feed_wdt(label="get_ntp_time_9")
         
@@ -1178,6 +1165,44 @@ class NetworkManager:
             return None, None, None, None, None
     
     
+    
+    
+    def _write_text_file(fname, text_row, max_records=200):
+        """
+        Appends a line of text to a file.
+        If the number of lines exceeds max_records, it keeps only the last max_records lines.
+        File is trimmed in RAM, under the assumption to keep limited the file size. 
+        """
+
+        try:
+            
+            # read existing lines (if file exists)
+            try:
+                with open(config.NETWORKS_LOG_FILE_NAME, "r") as f:
+                    lines = f.readlines()
+            except OSError:
+                lines = []
+
+            # checks is the text_row ends with CR
+            if text_row[-2:] != "\n":
+                text_row += "\n"
+            
+            # append new row
+            lines.append(text_row)
+
+            # trim if exceeding limit
+            if len(lines) > max_records:
+                lines = lines[-max_records:]
+
+            # rewrite the file
+            with open(config.NETWORKS_LOG_FILE_NAME, "w") as f:
+                for line in lines:
+                    f.write(str(line))
+
+        except Exception as e:
+            if config.DEBUG:
+                print(f"[ERROR]    log write error for {fname}: {e}")
+                                                
     
     
     async def upload_files(self, file_list, dest_fname_list, blocking):
@@ -1256,13 +1281,8 @@ class NetworkManager:
             
             # case of quick test, some info is saved to a text file
             if config.QUICK_CHECK:
-                try:
-                    with open(config.NETWORKS_LOG_FILE_NAME, "a") as f:
-                        f.write(f"UPLOAD,{time()},{duration_ms},{'OK' if file_sent else 'FAILED'}\n")
-                except Exception as e:
-                    # feedback is printed to the terminal
-                    if config.DEBUG:
-                        print(f"[ERROR]    Log error: {e}")
+                text_row = f"UPLOAD,{time()},{duration_ms},{'OK' if file_sent else 'FAILED'}\n"
+                self._write_text_file(text_row)
                 
             # feed the wdt
             self.feed_wdt(label="upload_file_4")
@@ -1274,4 +1294,3 @@ class NetworkManager:
         if config.LIGHTSLEEP_USAGE:
             if self.wlan.active():
                 self.disable_wifi()
-
